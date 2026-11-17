@@ -85,7 +85,7 @@ public sealed class PersonDetailsForm : Form
 
         // ── history ──
         var right = new Panel { Dock = DockStyle.Fill, Padding = Theme.Pad(12, 0, 0, 0), BackColor = Theme.Panel };
-        var historyTitle = Theme.MakeLabel("HISTORY  -  newest first", Theme.BodyBold, Theme.TextDim);
+        var historyTitle = Theme.MakeLabel("HISTORY  -  newest first  ·  double-click to edit", Theme.BodyBold, Theme.TextDim);
         historyTitle.Dock = DockStyle.Top;
         _history = MakeList();
         _history.MeasureItem += MeasureEvent;
@@ -96,7 +96,7 @@ public sealed class PersonDetailsForm : Form
         var historyButtons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, BackColor = Theme.Panel, Padding = Theme.Pad(0, 8, 0, 0) };
         historyButtons.Controls.Add(SmallButton("+ Record event", (_, _) => RecordEvent(), primary: true));
         historyButtons.Controls.Add(SmallButton("✨ Plan interaction", (_, _) => Plan(), primary: true));
-        historyButtons.Controls.Add(SmallButton("Open / complete", (_, _) => OpenSelected()));
+        historyButtons.Controls.Add(SmallButton("Edit / enter result", (_, _) => OpenSelected()));
         historyButtons.Controls.Add(SmallButton("Delete", (_, _) => DeleteSelected()));
 
         right.Controls.Add(Boxed(_history));
@@ -111,6 +111,10 @@ public sealed class PersonDetailsForm : Form
         close.Click += (_, _) => Close();
         CancelButton = close;
         bottom.Controls.Add(close);
+        var prompt = Theme.MakeButton("📋 Prompt for my Claude…");
+        prompt.Margin = Theme.Pad(0, 0, 8, 0);
+        prompt.Click += (_, _) => _actions.ShowPersonPrompt(this, _field, _person);
+        bottom.Controls.Add(prompt);
 
         Controls.Add(grid);
         Controls.Add(bottom);
@@ -150,6 +154,7 @@ public sealed class PersonDetailsForm : Form
     {
         var p = _person;
         _summary.Text = $"{(string.IsNullOrWhiteSpace(p.Role) ? "" : p.Role + "   ·   ")}" +
+                        $"Authority: {AuthorityPalette.LabelFor(p.Authority)} ({p.Authority})   ·   " +
                         $"I see them: {OpinionPalette.LabelFor(p.OurOpinion)} ({Theme.Signed(p.OurOpinion)})   ·   " +
                         $"They see me: {OpinionPalette.LabelFor(p.TheirOpinion)} ({Theme.Signed(p.TheirOpinion)})" +
                         (p.PendingCount > 0 ? $"   ·   {p.PendingCount} awaiting result" : "");

@@ -40,6 +40,7 @@ public sealed class MainForm : Form
             SelectionProvider = () => _canvas.Selected,
         };
         _advisorPanel.SettingsRequested += (_, _) => OpenApiSettings();
+        _advisorPanel.PromptRequested += (_, q) => FieldPrompt(q);
         _actions = new PersonActions(_advisor, owner => EnsureAi(owner));
 
         // ── top bar ──
@@ -57,6 +58,7 @@ public sealed class MainForm : Form
         _viewButton = TopButton("", (_, _) => _canvas.ToggleView());
         top.Controls.Add(_viewButton);
         top.Controls.Add(TopButton("Fit view", (_, _) => _canvas.FitToView()));
+        top.Controls.Add(TopButton("📋 Prompt for Claude", (_, _) => FieldPrompt("")));
         top.Controls.Add(TopButton("Export…", (_, _) => Export()));
         top.Controls.Add(TopButton("Import…", (_, _) => Import()));
         top.Controls.Add(TopButton("⚙ AI settings", (_, _) => OpenApiSettings()));
@@ -363,6 +365,13 @@ public sealed class MainForm : Form
                     menu.Items.Add(complete);
                 }
                 menu.Items.Add("Key info & history…", null, (_, _) => OpenDetails(p));
+                menu.Items.Add("📋 Prompt about them for my Claude…", null, (_, _) => { if (CurrentField is { } f) _actions.ShowPersonPrompt(this, f, p); });
+                var authority = new ToolStripMenuItem("Set authority");
+                foreach (var (label, v) in new[] { ("Maximum (the boss)", 95), ("High", 80), ("Considerable", 60), ("Some", 40), ("Little", 20), ("None", 0) })
+                    authority.DropDownItems.Add(label, null, (_, _) => { p.Authority = v; Changed(p); });
+                authority.DropDown.BackColor = Theme.Panel;
+                authority.DropDown.Renderer = new DarkMenuRenderer();
+                menu.Items.Add(authority);
                 menu.Items.Add(new ToolStripSeparator());
                 menu.Items.Add($"✨ Ask AI about {p.DisplayName}", null, (_, _) => AskAi(p));
                 var opinion = new ToolStripMenuItem("Set my opinion");
@@ -380,10 +389,22 @@ public sealed class MainForm : Form
             menu.Items.Add("Add person here", null, (_, _) => AddPersonNear(e.World, exact: true));
             menu.Items.Add("✨ Quick add with AI…", null, (_, _) => QuickAdd(e.World));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Switch view", null, (_, _) => _canvas.ToggleView());
+            var viewMenu = new ToolStripMenuItem("View");
+            foreach (var v in ViewInfo.All)
+                viewMenu.DropDownItems.Add(new ToolStripMenuItem(ViewInfo.LongName(v), null, (_, _) => _canvas.View = v) { Checked = _canvas.View == v });
+            viewMenu.DropDown.BackColor = Theme.Panel;
+            viewMenu.DropDown.Renderer = new DarkMenuRenderer();
+            menu.Items.Add(viewMenu);
+            menu.Items.Add("📋 Prompt for my Claude…", null, (_, _) => FieldPrompt(""));
             menu.Items.Add("Fit to view", null, (_, _) => _canvas.FitToView());
         }
         menu.Show(_canvas, e.Screen);
+    }
+
+    /// <summary>Opens a ready-made prompt about the current field for the user's own Claude chat.</summary>
+    private void FieldPrompt(string question)
+    {
+        if (CurrentField is { } f) _actions.ShowFieldPrompt(this, f, _canvas.Selected, question);
     }
 
     private void AskAi(Person p)
@@ -429,7 +450,7 @@ public sealed class MainForm : Form
     }
 
     private void UpdateViewButton() =>
-        _viewButton.Text = _canvas.View == PerceptionView.Ours ? "👁 View: how I see them" : "👁 View: how they see me";
+        _viewButton.Text = $"👁 View: {ViewInfo.ShortName(_canvas.View)}";
 
     // ───────────────────────────── persistence / settings ─────────────────────────────
 

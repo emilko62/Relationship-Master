@@ -19,14 +19,14 @@ public sealed class RelationshipAdvisor
 {
     public const string ModelId = "claude-opus-5-5";
 
-    private const string Ethics =
+    internal const string Ethics =
         "Give grounded, practical and ethical social advice: build genuine goodwill, communicate honestly, " +
         "protect the user's interests and boundaries. Competition is fine - win by outperforming, preparing better, " +
         "building alliances and showcasing strengths - but never suggest sabotage, deception, manipulation, " +
         "coercion, harassment, or exploiting someone's personal vulnerabilities to hurt them. When the user notes a " +
         "rival's weaknesses, use them to find where the user can shine by contrast, not to attack the person.";
 
-    private const string ChatSystem =
+    internal const string ChatSystem =
         "You are the built-in advisor of \"Relationship Master\", a desktop app where the user maps social " +
         "fields (work, family, clubs...) as circles: each person's circle size is their influence in the field, " +
         "their colour is the user's opinion of them, and the user also records how each person supposedly " +
@@ -37,7 +37,7 @@ public sealed class RelationshipAdvisor
         "concise and skimmable: short paragraphs or bullet points, no more than ~250 words unless the user asks " +
         "for more. Plain text only - no markdown headings or tables.";
 
-    private const string PlanSystem =
+    internal const string PlanSystem =
         "You are the interaction planner of \"Relationship Master\". The user wants to plan one concrete " +
         "interaction with a specific person. You receive the field snapshot, a dossier of the target (key info " +
         "such as likes, skills, quirks, weaknesses, plus relationship history), the goal, the situation and an " +
@@ -52,7 +52,7 @@ public sealed class RelationshipAdvisor
         "SIGNS OF SUCCESS - what to watch for afterwards\n" +
         "Keep it under ~350 words.";
 
-    private const string OutcomeSystem =
+    internal const string OutcomeSystem =
         "You evaluate how a planned social interaction actually went, for the app \"Relationship Master\". You get " +
         "the target's dossier, the goal, the plan, the intensity (maximum number of opinion points this " +
         "interaction may move, 0 = no effect at all) and the user's story of what happened. Judge honestly - do not " +
@@ -109,14 +109,7 @@ public sealed class RelationshipAdvisor
     public async Task PlanInteractionAsync(Field field, Person target, InteractionGoal goal, string situation,
         int intensity, Action<string> onText, CancellationToken ct)
     {
-        var prompt = new StringBuilder()
-            .AppendLine("<field_snapshot>").Append(FieldDescriber.Describe(field, target)).AppendLine("</field_snapshot>")
-            .AppendLine("<target_dossier>").Append(FieldDescriber.Dossier(target)).AppendLine("</target_dossier>")
-            .AppendLine($"Goal: {RelationshipEvent.GoalLabel(goal)}")
-            .AppendLine($"Intensity: {intensity} ({RelationshipEvent.IntensityLabel(intensity)})")
-            .AppendLine("Situation, in the user's words:")
-            .AppendLine(situation)
-            .ToString();
+        var prompt = PlanUserPrompt(field, target, goal, situation, intensity);
 
         await StreamAsync(PlanSystem, [new BetaUserMessageParam { Content = prompt }], Effort.High, onText, ct);
     }
@@ -127,15 +120,7 @@ public sealed class RelationshipAdvisor
     public async Task<OutcomeAssessment> EvaluateOutcomeAsync(Field field, Person target, RelationshipEvent ev,
         string story, CancellationToken ct)
     {
-        var prompt = new StringBuilder()
-            .AppendLine("<target_dossier>").Append(FieldDescriber.Dossier(target)).AppendLine("</target_dossier>")
-            .AppendLine($"Field: {field.Name}")
-            .AppendLine($"Goal: {RelationshipEvent.GoalLabel(ev.Goal)}")
-            .AppendLine($"Intensity (max opinion points): {ev.Intensity}")
-            .AppendLine("Situation:").AppendLine(ev.Situation)
-            .AppendLine("Plan:").AppendLine(string.IsNullOrWhiteSpace(ev.AiPlan) ? "(no written plan)" : ev.AiPlan)
-            .AppendLine("What actually happened, in the user's words:").AppendLine(story)
-            .ToString();
+        var prompt = OutcomeUserPrompt(field, target, ev, story);
 
         var schema = Schema(new
         {
@@ -146,14 +131,40 @@ public sealed class RelationshipAdvisor
         }, "successPercent", "ourOpinionDelta", "theirOpinionDelta", "assessment");
 
         using var doc = await JsonAsync(OutcomeSystem, prompt, schema, Effort.Medium, ct);
-        var r = doc.RootElement;
-        int max = Math.Max(0, ev.Intensity);
+        return OutcomeFromJson(doc.RootElement, ev.Intensity);
+    }
+
+    /// <summary>Reads an outcome JSON object (from the API or pasted from claude.ai), clamping deltas to the intensity.</summary>
+    public static OutcomeAssessment OutcomeFromJson(JsonElement r, int intensity)
+    {
+        int max = Math.Max(0, intensity);
         return new OutcomeAssessment(
             Math.Clamp(r.GetProperty("successPercent").GetInt32(), 0, 100),
             Math.Clamp(r.GetProperty("ourOpinionDelta").GetInt32(), -max, max),
             Math.Clamp(r.GetProperty("theirOpinionDelta").GetInt32(), -max, max),
-            r.GetProperty("assessment").GetString() ?? "");
+            r.TryGetProperty("assessment", out var a) ? a.GetString() ?? "" : "");
     }
+
+    internal static string OutcomeUserPrompt(Field field, Person target, RelationshipEvent ev, string story) =>
+        new StringBuilder()
+            .AppendLine("<target_dossier>").Append(FieldDescriber.Dossier(target)).AppendLine("</target_dossier>")
+            .AppendLine($"Field: {field.Name}")
+            .AppendLine($"Goal: {RelationshipEvent.GoalLabel(ev.Goal)}")
+            .AppendLine($"Intensity (max opinion points): {ev.Intensity}")
+            .AppendLine("Situation:").AppendLine(ev.Situation)
+            .AppendLine("Plan:").AppendLine(string.IsNullOrWhiteSpace(ev.AiPlan) ? "(no written plan)" : ev.AiPlan)
+            .AppendLine("What actually happened, in the user's words:").AppendLine(story)
+            .ToString();
+
+    internal static string PlanUserPrompt(Field field, Person target, InteractionGoal goal, string situation, int intensity) =>
+        new StringBuilder()
+            .AppendLine("<field_snapshot>").Append(FieldDescriber.Describe(field, target)).AppendLine("</field_snapshot>")
+            .AppendLine("<target_dossier>").Append(FieldDescriber.Dossier(target)).AppendLine("</target_dossier>")
+            .AppendLine($"Goal: {RelationshipEvent.GoalLabel(goal)}")
+            .AppendLine($"Intensity: {intensity} ({RelationshipEvent.IntensityLabel(intensity)})")
+            .AppendLine("Situation, in the user's words:")
+            .AppendLine(situation)
+            .ToString();
 
     // ───────────────────────────── quick add ─────────────────────────────
 
@@ -169,6 +180,7 @@ public sealed class RelationshipAdvisor
             ourInfluence = new { type = "integer", description = "0..100 how much the user can sway them" },
             ourOpinion = new { type = "integer", description = "-100..100 the user's opinion of them" },
             theirOpinion = new { type = "integer", description = "-100..100 how they supposedly see the user" },
+            authority = new { type = "integer", description = "0..100 formal authority/power (boss = high, intern = low)" },
             notes = new { type = "string", description = "anything useful that is not a key fact" },
             facts = new
             {
@@ -186,36 +198,49 @@ public sealed class RelationshipAdvisor
                     required = new[] { "category", "text" },
                 },
             },
-        }, "firstName", "lastName", "role", "fieldInfluence", "ourInfluence", "ourOpinion", "theirOpinion", "notes", "facts");
+        }, "firstName", "lastName", "role", "fieldInfluence", "ourInfluence", "ourOpinion", "theirOpinion", "authority", "notes", "facts");
 
-        var system = "Extract one person from the user's description of someone in their social field " +
-                     $"\"{field.Name}\". Infer sensible numeric scores from the wording; use 0 for an opinion " +
-                     "that isn't implied and moderate values (20-40) for unknown influence. Put likes, skills, " +
-                     "quirks, weaknesses etc. into facts.";
+        using var doc = await JsonAsync(QuickAddSystem(field), description, schema, Effort.Low, ct);
+        return PersonFromJson(doc.RootElement);
+    }
 
-        using var doc = await JsonAsync(system, description, schema, Effort.Low, ct);
-        var r = doc.RootElement;
-        int I(string n, int min, int max) => Math.Clamp(r.GetProperty(n).GetInt32(), min, max);
+    internal static string QuickAddSystem(Field field) =>
+        "Extract one person from the user's description of someone in their social field " +
+        $"\"{field.Name}\". Infer sensible numeric scores from the wording; use 0 for an opinion " +
+        "that isn't implied and moderate values (20-40) for unknown influence or authority. Put likes, skills, " +
+        "quirks, weaknesses etc. into facts.";
+
+    /// <summary>Builds a person from a quick-add JSON object (from the API or pasted from claude.ai).</summary>
+    public static Person PersonFromJson(JsonElement r)
+    {
+        static string S(JsonElement e, string n) => e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        int I(string n, int min, int max, int fallback) =>
+            r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number ? Math.Clamp(v.GetInt32(), min, max) : fallback;
+        var first = S(r, "firstName");
         var person = new Person
         {
-            FirstName = r.GetProperty("firstName").GetString() ?? "?",
-            LastName = r.GetProperty("lastName").GetString() ?? "",
-            Role = r.GetProperty("role").GetString() ?? "",
-            Notes = r.GetProperty("notes").GetString() ?? "",
-            FieldInfluence = I("fieldInfluence", 1, 100),
-            OurInfluence = I("ourInfluence", 0, 100),
-            OurOpinion = I("ourOpinion", -100, 100),
-            TheirOpinion = I("theirOpinion", -100, 100),
+            FirstName = first.Length > 0 ? first : "?",
+            LastName = S(r, "lastName"),
+            Role = S(r, "role"),
+            Notes = S(r, "notes"),
+            FieldInfluence = I("fieldInfluence", 1, 100, 30),
+            OurInfluence = I("ourInfluence", 0, 100, 20),
+            OurOpinion = I("ourOpinion", -100, 100, 0),
+            TheirOpinion = I("theirOpinion", -100, 100, 0),
+            Authority = I("authority", 0, 100, 20),
         };
-        foreach (var f in r.GetProperty("facts").EnumerateArray())
+        if (r.TryGetProperty("facts", out var facts) && facts.ValueKind == JsonValueKind.Array)
         {
-            var text = f.GetProperty("text").GetString();
-            if (string.IsNullOrWhiteSpace(text)) continue;
-            person.Facts.Add(new KeyFact
+            foreach (var f in facts.EnumerateArray())
             {
-                Category = Enum.TryParse<FactCategory>(f.GetProperty("category").GetString(), out var c) ? c : FactCategory.Other,
-                Text = text,
-            });
+                var text = S(f, "text");
+                if (string.IsNullOrWhiteSpace(text)) continue;
+                person.Facts.Add(new KeyFact
+                {
+                    Category = Enum.TryParse<FactCategory>(S(f, "category"), true, out var c) ? c : FactCategory.Other,
+                    Text = text,
+                });
+            }
         }
         return person;
     }

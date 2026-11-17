@@ -8,8 +8,8 @@ public sealed class InspectorPanel : Panel
     private readonly FlowLayoutPanel _flow;
     private readonly Label _title, _empty;
     private readonly TextBox _first, _last, _role, _notes;
-    private readonly OpinionSlider _fieldInfluence, _ourInfluence, _ourOpinion, _theirOpinion;
-    private readonly Label _fieldInfluenceValue, _ourInfluenceValue, _ourOpinionValue, _theirOpinionValue;
+    private readonly OpinionSlider _fieldInfluence, _ourInfluence, _ourOpinion, _theirOpinion, _authority;
+    private readonly Label _fieldInfluenceValue, _ourInfluenceValue, _ourOpinionValue, _theirOpinionValue, _authorityValue;
     private readonly List<Control> _othersOnly = new();
     private readonly Button _delete, _askAi, _details, _record, _plan;
     private readonly Label _pending;
@@ -60,6 +60,8 @@ public sealed class InspectorPanel : Panel
         (_ourInfluence, _ourInfluenceValue) = AddSlider("My influence on them", 0, 100, false, othersOnly: true);
         (_ourOpinion, _ourOpinionValue) = AddSlider("How I see them", -100, 100, true, othersOnly: true);
         (_theirOpinion, _theirOpinionValue) = AddSlider("How they (supposedly) see me", -100, 100, true, othersOnly: true);
+        (_authority, _authorityValue) = AddSlider("Authority (none → maximum)", 0, 100, false, othersOnly: false);
+        _authority.AuthorityScale = true;
 
         _flow.Controls.Add(Theme.MakeLabel("Notes"));
         _notes = Theme.MakeTextBox(multiline: true);
@@ -155,6 +157,7 @@ public sealed class InspectorPanel : Panel
             _role.Text = p.Role;
             _notes.Text = p.Notes;
             _fieldInfluence.SetSilently(p.FieldInfluence);
+            _authority.SetSilently(p.Authority);
             _ourInfluence.SetSilently(p.OurInfluence);
             _ourOpinion.SetSilently(p.OurOpinion);
             _theirOpinion.SetSilently(p.TheirOpinion);
@@ -193,6 +196,8 @@ public sealed class InspectorPanel : Panel
     private void UpdateValueLabels()
     {
         _fieldInfluenceValue.Text = _fieldInfluence.Value.ToString();
+        _authorityValue.Text = $"{AuthorityPalette.LabelFor(_authority.Value)}  {_authority.Value}";
+        _authorityValue.ForeColor = OpinionPalette.Lighten(AuthorityPalette.ColorFor(_authority.Value), 0.25f);
         _ourInfluenceValue.Text = $"{_ourInfluence.Value}%";
         _ourOpinionValue.Text = $"{OpinionPalette.LabelFor(_ourOpinion.Value)}  {_ourOpinion.Value:+#;-#;0}";
         _theirOpinionValue.Text = $"{OpinionPalette.LabelFor(_theirOpinion.Value)}  {_theirOpinion.Value:+#;-#;0}";
@@ -208,6 +213,7 @@ public sealed class InspectorPanel : Panel
         _person.Role = _role.Text;
         _person.Notes = _notes.Text;
         _person.FieldInfluence = _fieldInfluence.Value;
+        _person.Authority = _authority.Value;
         _person.OurInfluence = _ourInfluence.Value;
         _person.OurOpinion = _ourOpinion.Value;
         _person.TheirOpinion = _theirOpinion.Value;

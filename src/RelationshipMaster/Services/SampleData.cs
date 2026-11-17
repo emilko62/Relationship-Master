@@ -54,6 +54,14 @@ public static class SampleData
     private static Person P(string first, string last, string role, float x, float y,
         int fieldInfluence, int ourInfluence, int ourOpinion, int theirOpinion) => new()
     {
+        Authority = role switch
+        {
+            var r when r.Contains("Head") => 90,
+            var r when r.Contains("lead") => 65,
+            var r when r.Contains("Intern") => 5,
+            var r when r.Contains("Uncle") => 45,
+            _ => 25,
+        },
         FirstName = first, LastName = last, Role = role, X = x, Y = y,
         FieldInfluence = fieldInfluence, OurInfluence = ourInfluence,
         OurOpinion = ourOpinion, TheirOpinion = theirOpinion,

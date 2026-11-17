@@ -58,3 +58,43 @@ public static class OpinionPalette
     /// <summary>Stops for drawing a legend gradient.</summary>
     public static IReadOnlyList<(int at, Color color)> LegendStops => Stops;
 }
+
+/// <summary>
+/// Maps authority (0..100) to a colour: slate (no authority) → steel blue → amber → orange → royal purple (maximum).
+/// Deliberately different from the opinion palette so the views are never confused.
+/// </summary>
+public static class AuthorityPalette
+{
+    private static readonly (int at, Color color)[] Stops =
+    {
+        (0,   Color.FromArgb(84, 90, 104)),
+        (25,  Color.FromArgb(96, 138, 176)),
+        (50,  Color.FromArgb(228, 178, 64)),
+        (75,  Color.FromArgb(236, 112, 52)),
+        (100, Color.FromArgb(168, 64, 210)),
+    };
+
+    public static IReadOnlyList<(int at, Color color)> LegendStops => Stops;
+
+    public static Color ColorFor(int value)
+    {
+        value = Math.Clamp(value, 0, 100);
+        for (int i = 0; i < Stops.Length - 1; i++)
+        {
+            var (a, ca) = Stops[i];
+            var (b, cb) = Stops[i + 1];
+            if (value >= a && value <= b) return OpinionPalette.Lerp(ca, cb, (value - a) / (float)(b - a));
+        }
+        return Stops[^1].color;
+    }
+
+    public static string LabelFor(int value) => value switch
+    {
+        < 10 => "No authority",
+        < 30 => "Little authority",
+        < 55 => "Some authority",
+        < 75 => "Considerable",
+        < 90 => "High authority",
+        _ => "Maximum",
+    };
+}
