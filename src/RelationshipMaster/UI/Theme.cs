@@ -91,6 +91,8 @@ public static class Theme
         ForeColor = Text,
         Font = Body,
         Multiline = multiline,
+        // Enter makes a new line in multi-line boxes (it must never press the dialog's default button).
+        AcceptsReturn = multiline,
         ScrollBars = multiline ? ScrollBars.Vertical : ScrollBars.None,
     };
 

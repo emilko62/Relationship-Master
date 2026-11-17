@@ -13,11 +13,12 @@ public static class FieldDescriber
         if (!string.IsNullOrWhiteSpace(field.Description))
             sb.AppendLine($"Description: {field.Description}");
         var me = field.Me;
-        sb.AppendLine($"The user (\"Me\") has field influence {me.FieldInfluence}/100.");
+        sb.AppendLine($"The user (\"Me\") has field influence {me.FieldInfluence}/100 and authority {me.Authority}/100.");
         if (!string.IsNullOrWhiteSpace(me.Notes)) sb.AppendLine($"Notes about the user: {OneLine(me.Notes)}");
         AppendFacts(sb, me, "  ");
         sb.AppendLine();
-        sb.AppendLine("Scales: field influence 1..100 (weight in this field); our influence 0..100 (how much the user can sway them);");
+        sb.AppendLine("Scales: field influence 1..100 (informal weight in this field); our influence 0..100 (how much the user can sway them);");
+        sb.AppendLine("authority 0..100 (formal power, e.g. a boss; 0 = none, 100 = maximum);");
         sb.AppendLine("opinion -100 (enemy) .. 0 (neutral) .. +100 (alliance).");
         sb.AppendLine();
         sb.AppendLine("PEOPLE:");
@@ -58,6 +59,7 @@ public static class FieldDescriber
         sb.Append($": field influence {p.FieldInfluence}, our influence over them {p.OurInfluence}, ");
         sb.Append($"our opinion of them {Signed(p.OurOpinion)} [{OpinionPalette.LabelFor(p.OurOpinion)}], ");
         sb.Append($"how they supposedly see us {Signed(p.TheirOpinion)} [{OpinionPalette.LabelFor(p.TheirOpinion)}]");
+        sb.Append($", authority {p.Authority} [{AuthorityPalette.LabelFor(p.Authority)}]");
         return sb.ToString();
     }
 

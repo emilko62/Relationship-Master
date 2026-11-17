@@ -14,6 +14,8 @@ public sealed class OpinionSlider : Control
     public int Minimum { get; set; } = 0;
     public int Maximum { get; set; } = 100;
     public bool OpinionScale { get; set; }
+    /// <summary>Colour the track with the authority palette (0..100) instead.</summary>
+    public bool AuthorityScale { get; set; }
 
     public int Value
     {
@@ -61,14 +63,15 @@ public sealed class OpinionSlider : Control
 
         using (var path = Rounded(track, Theme.Px(3f)))
         {
-            if (OpinionScale)
+            if (OpinionScale || AuthorityScale)
             {
                 using var brush = new LinearGradientBrush(track, Color.Black, Color.Black, 0f);
-                var stops = OpinionPalette.LegendStops;
+                var stops = AuthorityScale ? AuthorityPalette.LegendStops : OpinionPalette.LegendStops;
+                float lo = stops[0].at, span = stops[^1].at - lo;
                 brush.InterpolationColors = new ColorBlend
                 {
                     Colors = stops.Select(s => s.color).ToArray(),
-                    Positions = stops.Select(s => (s.at + 100) / 200f).ToArray(),
+                    Positions = stops.Select(s => (s.at - lo) / span).ToArray(),
                 };
                 g.FillPath(brush, path);
             }
@@ -83,7 +86,8 @@ public sealed class OpinionSlider : Control
             }
         }
 
-        var knobColor = OpinionScale ? OpinionPalette.ColorFor(_value) : Theme.Accent;
+        var knobColor = AuthorityScale ? AuthorityPalette.ColorFor(_value)
+            : OpinionScale ? OpinionPalette.ColorFor(_value) : Theme.Accent;
         using var knob = new SolidBrush(knobColor);
         float k = Theme.Px(8f);
         using var ring = new Pen(Focused ? Theme.Accent : Color.White, Theme.Px(Focused ? 3f : 2f));

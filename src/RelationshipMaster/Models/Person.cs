@@ -26,6 +26,9 @@ public sealed class Person
     /// <summary>-100..100 - how they (supposedly) perceive us.</summary>
     public int TheirOpinion { get; set; }
 
+    /// <summary>0..100 - formal authority / power over others (0 = none, 100 = maximum, e.g. the boss).</summary>
+    public int Authority { get; set; } = 20;
+
     public string Role { get; set; } = "";
     public string Notes { get; set; } = "";
 
@@ -61,13 +64,48 @@ public sealed class Person
     [JsonIgnore]
     public string FullName => $"{FirstName} {LastName}".Trim();
 
-    public int OpinionFor(PerceptionView view) => view == PerceptionView.Ours ? OurOpinion : TheirOpinion;
+    public int ValueFor(PerceptionView view) => view switch
+    {
+        PerceptionView.Ours => OurOpinion,
+        PerceptionView.Theirs => TheirOpinion,
+        _ => Authority,
+    };
 }
 
+/// <summary>What the circle colours on the map show.</summary>
 public enum PerceptionView
 {
     /// <summary>How WE perceive the others.</summary>
     Ours,
     /// <summary>How the others (supposedly) perceive US.</summary>
     Theirs,
+    /// <summary>How much formal authority each person has (no authority → maximum).</summary>
+    Authority,
+}
+
+public static class ViewInfo
+{
+    public static readonly PerceptionView[] All = Enum.GetValues<PerceptionView>();
+
+    public static string ShortName(PerceptionView v) => v switch
+    {
+        PerceptionView.Ours => "I see them",
+        PerceptionView.Theirs => "They see me",
+        _ => "Authority",
+    };
+
+    public static string LongName(PerceptionView v) => v switch
+    {
+        PerceptionView.Ours => "How I see them",
+        PerceptionView.Theirs => "How they (supposedly) see me",
+        _ => "Authority - from none to maximum",
+    };
+
+    public static Color ColorFor(PerceptionView v, int value) =>
+        v == PerceptionView.Authority ? AuthorityPalette.ColorFor(value) : OpinionPalette.ColorFor(value);
+
+    public static string LabelFor(PerceptionView v, int value) =>
+        v == PerceptionView.Authority ? AuthorityPalette.LabelFor(value) : OpinionPalette.LabelFor(value);
+
+    public static PerceptionView Next(PerceptionView v) => All[(Array.IndexOf(All, v) + 1) % All.Length];
 }

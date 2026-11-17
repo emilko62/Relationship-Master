@@ -17,6 +17,8 @@ public sealed class AdvisorPanel : Panel
     public Func<Field?>? FieldProvider { get; set; }
     public Func<Person?>? SelectionProvider { get; set; }
     public event EventHandler? SettingsRequested;
+    /// <summary>Raised with the typed question when the user wants a prompt for their own Claude chat instead.</summary>
+    public event EventHandler<string>? PromptRequested;
 
     public AdvisorPanel(RelationshipAdvisor advisor)
     {
@@ -84,8 +86,17 @@ public sealed class AdvisorPanel : Panel
         inputRow.Controls.Add(_input, 0, 0);
         inputRow.Controls.Add(_send, 1, 0);
 
+        var promptRow = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, BackColor = Theme.Panel, Padding = Theme.Pad(0, 6, 0, 0) };
+        var asPrompt = Theme.MakeButton("📋 Prompt for my Claude…", small: true);
+        asPrompt.Click += (_, _) => PromptRequested?.Invoke(this, _input.Text.Trim());
+        var hint = Theme.MakeLabel("no API key needed", Theme.Small);
+        hint.Margin = Theme.Pad(8, 6, 0, 0);
+        promptRow.Controls.Add(asPrompt);
+        promptRow.Controls.Add(hint);
+
         Controls.Add(outputHost);
         Controls.Add(inputRow);
+        Controls.Add(promptRow);
         Controls.Add(_quick);
         Controls.Add(_status);
         Controls.Add(header);

@@ -13,7 +13,8 @@ public sealed class FieldCanvas : Control
 {
     private Field? _field;
     private PerceptionView _view = PerceptionView.Ours;
-    private float _viewBlend;           // 0 = ours, 1 = theirs (animated)
+    private PerceptionView _fromView = PerceptionView.Ours;
+    private float _viewBlend = 1f;      // 0 = colours of _fromView, 1 = colours of _view (animated)
     private readonly System.Windows.Forms.Timer _anim = new() { Interval = 15 };
 
     private float _zoom = 1f;
@@ -26,7 +27,9 @@ public sealed class FieldCanvas : Control
     private PointF _dragOrigin;         // person position or pan at drag start
     private bool _dragMoved;
 
-    private RectangleF _viewChipRect;
+    private RectangleF _viewChipRect;   // whole segmented view switcher
+    private float _headerBottom;
+    private readonly RectangleF[] _segmentRects = new RectangleF[ViewInfo.All.Length];
 
     public event EventHandler? SelectionChanged;
     public event EventHandler? FieldModified;
@@ -42,9 +45,8 @@ public sealed class FieldCanvas : Control
         BackColor = Theme.Canvas;
         _anim.Tick += (_, _) =>
         {
-            float target = _view == PerceptionView.Theirs ? 1f : 0f;
-            _viewBlend += Math.Sign(target - _viewBlend) * 0.08f;
-            if (Math.Abs(target - _viewBlend) < 0.08f) { _viewBlend = target; _anim.Stop(); }
+            _viewBlend = Math.Min(1f, _viewBlend + 0.08f);
+            if (_viewBlend >= 1f) _anim.Stop();
             Invalidate();
         };
     }
@@ -67,13 +69,16 @@ public sealed class FieldCanvas : Control
         set
         {
             if (_view == value) return;
+            _fromView = _view;
             _view = value;
+            _viewBlend = 0f;
             _anim.Start();
             ViewChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    public void ToggleView() => View = _view == PerceptionView.Ours ? PerceptionView.Theirs : PerceptionView.Ours;
+    /// <summary>Cycles through the views: how I see them → how they see me → authority.</summary>
+    public void ToggleView() => View = ViewInfo.Next(_view);
 
     public Person? Selected
     {
@@ -131,9 +136,11 @@ public sealed class FieldCanvas : Control
         float minX = _field.People.Min(p => p.X - RadiusOf(p)), maxX = _field.People.Max(p => p.X + RadiusOf(p));
         float minY = _field.People.Min(p => p.Y - RadiusOf(p)), maxY = _field.People.Max(p => p.Y + RadiusOf(p));
         float w = Math.Max(200, maxX - minX), h = Math.Max(200, maxY - minY);
-        float availW = Math.Max(100 * S, Width - 140 * S), availH = Math.Max(100 * S, Height - 230 * S);
+        // Keep clear of the header (title, view switcher, description) and the legend at the bottom.
+        float top = Math.Max(130 * S, _headerBottom + 40 * S), bottom = 90 * S;
+        float availW = Math.Max(100 * S, Width - 140 * S), availH = Math.Max(100 * S, Height - top - bottom);
         _zoom = Math.Clamp(Math.Min(availW / w, availH / h) / S, 0.2f, 2.0f);
-        _pan = new PointF(-(minX + maxX) / 2f * Z, -(minY + maxY) / 2f * Z + 5 * S);
+        _pan = new PointF(-(minX + maxX) / 2f * Z, -(minY + maxY) / 2f * Z + (top - bottom) / 2f);
         Invalidate();
     }
 
@@ -161,13 +168,12 @@ public sealed class FieldCanvas : Control
 
     // ───────────────────────────── painting ─────────────────────────────
 
-    private Color ColorOf(Person p)
-    {
-        if (p.IsMe) return Theme.Me;
-        var ours = OpinionPalette.ColorFor(p.OurOpinion);
-        var theirs = OpinionPalette.ColorFor(p.TheirOpinion);
-        return OpinionPalette.Lerp(ours, theirs, _viewBlend);
-    }
+    private Color ColorOf(Person p) =>
+        OpinionPalette.Lerp(ColorIn(_fromView, p), ColorIn(_view, p), _viewBlend);
+
+    /// <summary>"Me" is gold in the opinion views (no opinion of myself) and coloured by authority in the authority view.</summary>
+    private static Color ColorIn(PerceptionView v, Person p) =>
+        p.IsMe && v != PerceptionView.Authority ? Theme.Me : ViewInfo.ColorFor(v, p.ValueFor(v));
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -362,43 +368,59 @@ public sealed class FieldCanvas : Control
         using (var tb = new SolidBrush(Theme.Text))
             g.DrawString(_field.Name, Theme.Title, tb, 18 * S, 12 * S);
 
-        // view toggle chip (clickable)
-        string label = _view == PerceptionView.Ours ? "How I see them" : "How they (supposedly) see me";
-        var size = g.MeasureString(label, Theme.BodyBold);
-        float chipH = Math.Max(34 * S, size.Height + 12 * S);
-        _viewChipRect = new RectangleF(Width - size.Width - 66 * S, 16 * S, size.Width + 46 * S, chipH);
+        // segmented view switcher (clickable): I see them | They see me | Authority
+        var views = ViewInfo.All;
+        var sizes = views.Select(v => g.MeasureString(ViewInfo.ShortName(v), Theme.BodyBold)).ToArray();
+        float segPad = 14 * S;
+        float chipH = Math.Max(34 * S, sizes.Max(z => z.Height) + 12 * S);
+        float total = sizes.Sum(z => z.Width + segPad * 2);
+        var titleSize = g.MeasureString(_field.Name, Theme.Title);
+        // Wide canvas: switcher top-right. Narrow canvas (e.g. 200 % scaling): its own line under the title.
+        bool compact = Width - total - 24 * S < 18 * S + titleSize.Width + 24 * S;
+        _viewChipRect = compact
+            ? new RectangleF(20 * S, 12 * S + titleSize.Height + 4 * S, total, chipH)
+            : new RectangleF(Width - total - 24 * S, 16 * S, total, chipH);
         using (var path = OpinionSlider.Rounded(_viewChipRect, chipH / 2))
         {
-            using var fill = new SolidBrush(_view == PerceptionView.Ours ? Theme.PanelAlt : Color.FromArgb(60, 48, 110));
+            using var fill = new SolidBrush(Theme.PanelAlt);
             g.FillPath(fill, path);
-            using var border = new Pen(Theme.Accent, 1.4f * S);
+            using var border = new Pen(Theme.Border, S);
             g.DrawPath(border, path);
         }
-        // two-tone dot: left half = my view, right half = their view; the active half is bright
-        var dot = new RectangleF(_viewChipRect.X + 14 * S, _viewChipRect.Y + chipH / 2 - 6 * S, 12 * S, 12 * S);
-        using (var on = new SolidBrush(Theme.Accent))
-        using (var off = new SolidBrush(Theme.Border))
+        float sx = _viewChipRect.X;
+        for (int i = 0; i < views.Length; i++)
         {
-            g.FillPie(_view == PerceptionView.Ours ? on : off, dot.X, dot.Y, dot.Width, dot.Height, 90, 180);
-            g.FillPie(_view == PerceptionView.Theirs ? on : off, dot.X, dot.Y, dot.Width, dot.Height, 270, 180);
+            float w = sizes[i].Width + segPad * 2;
+            _segmentRects[i] = new RectangleF(sx, _viewChipRect.Y, w, chipH);
+            if (views[i] == _view)
+            {
+                var inner = RectangleF.Inflate(_segmentRects[i], -3 * S, -3 * S);
+                using var path = OpinionSlider.Rounded(inner, inner.Height / 2);
+                using var fill = new SolidBrush(Theme.Accent);
+                g.FillPath(fill, path);
+            }
+            using var tb = new SolidBrush(views[i] == _view ? Color.White : Theme.TextDim);
+            g.DrawString(ViewInfo.ShortName(views[i]), Theme.BodyBold, tb, sx + segPad, _viewChipRect.Y + (chipH - sizes[i].Height) / 2);
+            sx += w;
         }
-        using (var tb = new SolidBrush(Theme.Text))
-            g.DrawString(label, Theme.BodyBold, tb, _viewChipRect.X + 32 * S, _viewChipRect.Y + (chipH - size.Height) / 2);
         using (var hint = new SolidBrush(Theme.TextDim))
         {
-            const string h = "click to switch view  (V)";
+            string h = $"{ViewInfo.LongName(_view)}   ·   V to switch";
             var hs = g.MeasureString(h, Theme.Small);
-            g.DrawString(h, Theme.Small, hint, _viewChipRect.Right - hs.Width - 6 * S, _viewChipRect.Bottom + 3 * S);
+            float hx = compact ? _viewChipRect.X + 6 * S : _viewChipRect.Right - hs.Width - 6 * S;
+            g.DrawString(h, Theme.Small, hint, hx, _viewChipRect.Bottom + 3 * S);
+            _headerBottom = _viewChipRect.Bottom + 3 * S + hs.Height;
         }
 
         var sub = _field.Description;
         if (!string.IsNullOrWhiteSpace(sub))
         {
             using var sb = new SolidBrush(Theme.TextDim);
-            var titleH = g.MeasureString(_field.Name, Theme.Title).Height;
-            float descW = Math.Max(160 * S, _viewChipRect.Left - 40 * S);
             using var fmt = new StringFormat { Trimming = StringTrimming.EllipsisWord };
-            g.DrawString(sub, Theme.Body, sb, new RectangleF(20 * S, 12 * S + titleH, descW, 40 * S), fmt);
+            if (compact)
+                g.DrawString(sub, Theme.Body, sb, new RectangleF(20 * S, _headerBottom + 4 * S, Math.Max(160 * S, Width - 40 * S), 22 * S), fmt);
+            else
+                g.DrawString(sub, Theme.Body, sb, new RectangleF(20 * S, 12 * S + titleSize.Height, Math.Max(160 * S, _viewChipRect.Left - 40 * S), 40 * S), fmt);
         }
     }
 
@@ -411,22 +433,28 @@ public sealed class FieldCanvas : Control
             g.FillPath(bg, path);
         }
         var bar = new RectangleF(area.X + 14 * S, area.Y + 26 * S, area.Width - 28 * S, 9 * S);
+        bool authority = _view == PerceptionView.Authority;
         using (var brush = new LinearGradientBrush(bar, Color.Black, Color.Black, 0f))
         {
-            var stops = OpinionPalette.LegendStops;
+            var stops = authority ? AuthorityPalette.LegendStops : OpinionPalette.LegendStops;
+            float lo = stops[0].at, span = stops[^1].at - lo;
             brush.InterpolationColors = new ColorBlend
             {
                 Colors = stops.Select(s => s.color).ToArray(),
-                Positions = stops.Select(s => (s.at + 100) / 200f).ToArray(),
+                Positions = stops.Select(s => (s.at - lo) / span).ToArray(),
             };
             using var bp = OpinionSlider.Rounded(bar, 4 * S);
             g.FillPath(brush, bp);
         }
         using var tb = new SolidBrush(Theme.TextDim);
-        g.DrawString(_view == PerceptionView.Ours ? "My opinion of them" : "Their (supposed) opinion of me",
-            Theme.Small, tb, area.X + 12 * S, area.Y + 6 * S);
-        string[] labels = { "Enemy", "Neutral", "Friend", "Ally" };
-        float[] pos = { 0f, 0.5f, 0.8f, 1f };
+        g.DrawString(_view switch
+        {
+            PerceptionView.Ours => "My opinion of them",
+            PerceptionView.Theirs => "Their (supposed) opinion of me",
+            _ => "Authority (formal power)",
+        }, Theme.Small, tb, area.X + 12 * S, area.Y + 6 * S);
+        string[] labels = authority ? new[] { "None", "Some", "High", "Max" } : new[] { "Enemy", "Neutral", "Friend", "Ally" };
+        float[] pos = authority ? new[] { 0f, 0.4f, 0.8f, 1f } : new[] { 0f, 0.5f, 0.8f, 1f };
         for (int i = 0; i < labels.Length; i++)
         {
             var s = g.MeasureString(labels[i], Theme.Small);
@@ -445,6 +473,7 @@ public sealed class FieldCanvas : Control
         var lines = new List<string> { string.IsNullOrWhiteSpace(p.FullName) ? p.DisplayName : p.FullName };
         if (!string.IsNullOrWhiteSpace(p.Role)) lines.Add(p.Role);
         lines.Add($"Influence in field: {p.FieldInfluence}");
+        lines.Add($"Authority: {AuthorityPalette.LabelFor(p.Authority)} ({p.Authority})");
         if (!p.IsMe)
         {
             lines.Add($"My influence on them: {p.OurInfluence}");
@@ -516,7 +545,8 @@ public sealed class FieldCanvas : Control
 
         if (e.Button == MouseButtons.Left && _viewChipRect.Contains(e.Location))
         {
-            ToggleView();
+            for (int i = 0; i < _segmentRects.Length; i++)
+                if (_segmentRects[i].Contains(e.Location)) View = ViewInfo.All[i];
             return;
         }
 

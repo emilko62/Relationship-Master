@@ -121,7 +121,7 @@ public sealed class QuickAddDialog : DarkDialog
 
     public Person? Result { get; private set; }
 
-    public QuickAddDialog(RelationshipAdvisor advisor, Field field) : base("✨ Quick add with AI", 460)
+    public QuickAddDialog(RelationshipAdvisor advisor, Field field) : base("✨ Quick add with AI", 520)
     {
         _advisor = advisor;
         _field = field;
@@ -138,12 +138,42 @@ public sealed class QuickAddDialog : DarkDialog
         _status.MaximumSize = new Size(ContentWidth, 0);
         Body.Controls.Add(_status);
 
-        _go = Theme.MakeButton("Add person", primary: true);
+        _go = Theme.MakeButton("✨ Add with AI", primary: true);
         _go.Margin = Theme.Pad(6, 0, 0, 0);
         _go.Click += async (_, _) => await RunAsync();
         Buttons.Controls.Add(_go);
+        var viaPrompt = Theme.MakeButton("📋 Use my Claude…");
+        viaPrompt.Margin = Theme.Pad(6, 0, 0, 0);
+        viaPrompt.Click += (_, _) => ViaPrompt();
+        Buttons.Controls.Add(viaPrompt);
         AddButton("Cancel", DialogResult.Cancel);
+        AcceptButton = null; // Enter makes a new line in the description
         FormClosing += (_, _) => _cts?.Cancel();
+    }
+
+    /// <summary>Same extraction through the user's own Claude chat: copy the prompt, paste the JSON reply.</summary>
+    private void ViaPrompt()
+    {
+        if (string.IsNullOrWhiteSpace(_text.Text)) { _status.Text = "Describe the person first."; _text.Focus(); return; }
+        Person? parsed = null;
+        using var d = new ClaudePromptDialog("Add a person with your Claude", PromptBuilder.QuickAdd(_field, _text.Text.Trim()),
+            "Paste Claude's reply (it contains a JSON block describing the person)", answer =>
+            {
+                try
+                {
+                    using var doc = PromptBuilder.ExtractJson(answer);
+                    parsed = RelationshipAdvisor.PersonFromJson(doc.RootElement);
+                    return null;
+                }
+                catch (FormatException ex) { return ex.Message; }
+                catch (InvalidOperationException) { return "That JSON doesn't look like a person - paste Claude's whole reply."; }
+            });
+        if (d.ShowDialog(this) == DialogResult.OK && parsed != null)
+        {
+            Result = parsed;
+            DialogResult = DialogResult.OK;
+            Close();
+        }
     }
 
     private async Task RunAsync()
