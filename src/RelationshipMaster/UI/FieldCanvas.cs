@@ -89,13 +89,18 @@ public sealed class FieldCanvas : Control
 
     // ───────────────────────────── geometry ─────────────────────────────
 
+    /// <summary>DPI scale of the monitor (1 at 100 %, 2 at 200 %). Everything drawn is multiplied by it.</summary>
+    private float S => DeviceDpi / 96f;
+    /// <summary>World → screen factor: user zoom × DPI scale.</summary>
+    private float Z => _zoom * S;
+
     public static float RadiusOf(Person p) => 18f + Math.Clamp(p.FieldInfluence, 1, 100) * 0.6f;
 
     private PointF ToScreen(float x, float y) =>
-        new(Width / 2f + _pan.X + x * _zoom, Height / 2f + _pan.Y + y * _zoom);
+        new(Width / 2f + _pan.X + x * Z, Height / 2f + _pan.Y + y * Z);
 
     public PointF ToWorld(Point s) =>
-        new((s.X - Width / 2f - _pan.X) / _zoom, (s.Y - Height / 2f - _pan.Y) / _zoom);
+        new((s.X - Width / 2f - _pan.X) / Z, (s.Y - Height / 2f - _pan.Y) / Z);
 
     private IEnumerable<Person> DrawOrder()
     {
@@ -119,15 +124,16 @@ public sealed class FieldCanvas : Control
 
     public void FitToView()
     {
-        if (_field == null || _field.People.Count == 0 || Width < 50 || Height < 50)
+        if (_field == null || _field.People.Count == 0 || Width < 50 * S || Height < 50 * S)
         {
             _zoom = 1f; _pan = PointF.Empty; Invalidate(); return;
         }
         float minX = _field.People.Min(p => p.X - RadiusOf(p)), maxX = _field.People.Max(p => p.X + RadiusOf(p));
         float minY = _field.People.Min(p => p.Y - RadiusOf(p)), maxY = _field.People.Max(p => p.Y + RadiusOf(p));
         float w = Math.Max(200, maxX - minX), h = Math.Max(200, maxY - minY);
-        _zoom = Math.Clamp(Math.Min((Width - 140) / w, (Height - 170) / h), 0.25f, 2.0f);
-        _pan = new PointF(-(minX + maxX) / 2f * _zoom, -(minY + maxY) / 2f * _zoom + 10);
+        float availW = Math.Max(100 * S, Width - 140 * S), availH = Math.Max(100 * S, Height - 230 * S);
+        _zoom = Math.Clamp(Math.Min(availW / w, availH / h) / S, 0.2f, 2.0f);
+        _pan = new PointF(-(minX + maxX) / 2f * Z, -(minY + maxY) / 2f * Z + 5 * S);
         Invalidate();
     }
 
@@ -185,7 +191,7 @@ public sealed class FieldCanvas : Control
         DrawLegend(g);
         if (_hover != null && _drag == DragMode.None) DrawTooltip(g, _hover);
         if (!_field.Others.Any())
-            DrawCentered(g, "Double-click anywhere to add a person", Theme.Body, Theme.TextDim, 90);
+            DrawCentered(g, "Double-click anywhere to add a person", Theme.Body, Theme.TextDim, 90 * S);
     }
 
     private void DrawBackground(Graphics g)
@@ -208,14 +214,14 @@ public sealed class FieldCanvas : Control
         }
 
         // dot grid
-        float step = 40 * _zoom;
-        while (step < 18) step *= 2;
+        float step = 40 * Z;
+        while (step < 18 * S) step *= 2;
         var origin = ToScreen(0, 0);
         float startX = origin.X % step, startY = origin.Y % step;
         using var dot = new SolidBrush(Theme.GridDot);
         for (float x = startX; x < Width; x += step)
             for (float y = startY; y < Height; y += step)
-                g.FillEllipse(dot, x - 1.2f, y - 1.2f, 2.4f, 2.4f);
+                g.FillEllipse(dot, x - 1.2f * S, y - 1.2f * S, 2.4f * S, 2.4f * S);
     }
 
     private void DrawLink(Graphics g, Person me, Person p)
@@ -223,17 +229,17 @@ public sealed class FieldCanvas : Control
         var a = ToScreen(me.X, me.Y);
         var b = ToScreen(p.X, p.Y);
         float dx = b.X - a.X, dy = b.Y - a.Y, len = MathF.Sqrt(dx * dx + dy * dy);
-        float ra = RadiusOf(me) * _zoom, rb = RadiusOf(p) * _zoom;
-        if (len < ra + rb + 4) return;
+        float ra = RadiusOf(me) * Z, rb = RadiusOf(p) * Z;
+        if (len < ra + rb + 4 * S) return;
         float ux = dx / len, uy = dy / len;
-        var start = new PointF(a.X + ux * (ra + 3), a.Y + uy * (ra + 3));
-        var end = new PointF(b.X - ux * (rb + 5), b.Y - uy * (rb + 5));
+        var start = new PointF(a.X + ux * (ra + 3 * S), a.Y + uy * (ra + 3 * S));
+        var end = new PointF(b.X - ux * (rb + 5 * S), b.Y - uy * (rb + 5 * S));
 
         bool focus = p == _selected || p == _hover;
         float influence = p.OurInfluence / 100f;
         int alpha = (int)(focus ? 230 : 50 + influence * 130);
         var color = Color.FromArgb(alpha, ColorOf(p));
-        float width = (1f + influence * 7f) * Math.Clamp(_zoom, 0.5f, 1.4f);
+        float width = (1f + influence * 7f) * Math.Clamp(_zoom, 0.5f, 1.4f) * S;
 
         using var pen = new Pen(color, width) { StartCap = LineCap.Round };
         if (p.OurInfluence < 25) pen.DashStyle = DashStyle.Dash;
@@ -243,15 +249,16 @@ public sealed class FieldCanvas : Control
 
         if (focus)
         {
-            var mid = new PointF((start.X + end.X) / 2, (start.Y + end.Y) / 2);
-            DrawPill(g, $"our influence {p.OurInfluence}%", mid, Theme.Small, color);
+            // 60 % of the way towards them, so the label stays clear of my own name tag
+            var mid = new PointF(start.X + (end.X - start.X) * 0.6f, start.Y + (end.Y - start.Y) * 0.6f);
+            DrawPill(g, $"my influence {p.OurInfluence}%", mid, Theme.Small, color);
         }
     }
 
     private void DrawPerson(Graphics g, Person p)
     {
         var c = ToScreen(p.X, p.Y);
-        float r = RadiusOf(p) * _zoom;
+        float r = RadiusOf(p) * Z;
         var color = ColorOf(p);
         var rect = new RectangleF(c.X - r, c.Y - r, r * 2, r * 2);
 
@@ -260,7 +267,7 @@ public sealed class FieldCanvas : Control
         float glow = focus ? r * 0.45f : r * 0.22f;
         using (var gp = new GraphicsPath())
         {
-            gp.AddEllipse(c.X - r - glow, c.Y - r - glow + 3, (r + glow) * 2, (r + glow) * 2);
+            gp.AddEllipse(c.X - r - glow, c.Y - r - glow + 3 * S, (r + glow) * 2, (r + glow) * 2);
             using var pgb = new PathGradientBrush(gp)
             {
                 CenterColor = Color.FromArgb(focus ? 120 : 70, color),
@@ -283,27 +290,27 @@ public sealed class FieldCanvas : Control
             g.FillPath(pgb, body);
         }
 
-        using (var rim = new Pen(OpinionPalette.Lighten(color, 0.45f), p.IsMe ? 3f : 1.5f))
+        using (var rim = new Pen(OpinionPalette.Lighten(color, 0.45f), (p.IsMe ? 3f : 1.5f) * S))
             g.DrawEllipse(rim, rect);
 
         if (p.IsMe)
         {
-            using var halo = new Pen(Color.FromArgb(140, Theme.Me), 1.5f) { DashStyle = DashStyle.Dot };
-            g.DrawEllipse(halo, RectangleF.Inflate(rect, 6, 6));
+            using var halo = new Pen(Color.FromArgb(140, Theme.Me), 1.5f * S) { DashStyle = DashStyle.Dot };
+            g.DrawEllipse(halo, RectangleF.Inflate(rect, 6 * S, 6 * S));
         }
 
         if (p == _selected)
         {
-            using var sel = new Pen(Color.White, 2.2f);
-            g.DrawEllipse(sel, RectangleF.Inflate(rect, 4, 4));
+            using var sel = new Pen(Color.White, 2.2f * S);
+            g.DrawEllipse(sel, RectangleF.Inflate(rect, 4 * S, 4 * S));
         }
 
         // name (+ role if room)
         string name = p.DisplayName;
-        float fontSize = Math.Clamp(r * 0.32f, 7f, 18f);
+        float fontSize = Math.Clamp(r * 0.32f, 7f * S, 18f * S);
         using var font = new Font("Segoe UI Semibold", fontSize, FontStyle.Regular, GraphicsUnit.Pixel);
         var size = g.MeasureString(name, font);
-        bool inside = size.Width < r * 1.85f && r > 14;
+        bool inside = size.Width < r * 1.85f && r > 14 * S;
         var textColor = Brightness(color) > 0.62f ? Color.FromArgb(25, 25, 30) : Color.White;
         if (inside)
         {
@@ -311,9 +318,9 @@ public sealed class FieldCanvas : Control
             string role = p.IsMe ? "you" : p.Role;
             Font? roleFont = null;
             SizeF roleSize = SizeF.Empty;
-            if (!string.IsNullOrWhiteSpace(role) && r > 34)
+            if (!string.IsNullOrWhiteSpace(role) && r > 34 * S)
             {
-                roleFont = new Font("Segoe UI", Math.Max(7f, fontSize * 0.62f), GraphicsUnit.Pixel);
+                roleFont = new Font("Segoe UI", Math.Max(7f * S, fontSize * 0.62f), GraphicsUnit.Pixel);
                 role = Ellipsize(g, role, roleFont, r * 1.6f);
                 roleSize = g.MeasureString(role, roleFont);
                 ty -= roleSize.Height / 2;
@@ -323,13 +330,29 @@ public sealed class FieldCanvas : Control
             if (roleFont != null)
             {
                 using var rb = new SolidBrush(Color.FromArgb(190, textColor));
-                g.DrawString(role, roleFont, rb, c.X - roleSize.Width / 2, ty + size.Height - 2);
+                g.DrawString(role, roleFont, rb, c.X - roleSize.Width / 2, ty + size.Height - 2 * S);
                 roleFont.Dispose();
             }
         }
         else
         {
-            DrawPill(g, name, new PointF(c.X, c.Y + r + 12), Theme.Small, Color.FromArgb(200, Theme.PanelAlt));
+            DrawPill(g, name, new PointF(c.X, c.Y + r + 12 * S), Theme.Small, Color.FromArgb(200, Theme.PanelAlt));
+        }
+
+        // badge: number of planned interactions awaiting a result
+        int pending = p.PendingCount;
+        if (pending > 0)
+        {
+            float br = 9 * S;
+            var bc = new PointF(c.X + r * 0.72f, c.Y - r * 0.72f);
+            using var bb = new SolidBrush(Theme.Pending);
+            using var bp = new Pen(Theme.Canvas, 2 * S);
+            g.FillEllipse(bb, bc.X - br, bc.Y - br, br * 2, br * 2);
+            g.DrawEllipse(bp, bc.X - br, bc.Y - br, br * 2, br * 2);
+            string n = pending > 9 ? "9+" : pending.ToString();
+            var ns = g.MeasureString(n, Theme.SmallBold);
+            using var nb = new SolidBrush(Color.FromArgb(30, 24, 10));
+            g.DrawString(n, Theme.SmallBold, nb, bc.X - ns.Width / 2, bc.Y - ns.Height / 2);
         }
     }
 
@@ -337,27 +360,22 @@ public sealed class FieldCanvas : Control
     {
         if (_field == null) return;
         using (var tb = new SolidBrush(Theme.Text))
-            g.DrawString(_field.Name, Theme.Title, tb, 18, 12);
-        var sub = _field.Description;
-        if (!string.IsNullOrWhiteSpace(sub))
-        {
-            using var sb = new SolidBrush(Theme.TextDim);
-            g.DrawString(sub, Theme.Body, sb, new RectangleF(20, 50, Math.Max(100, Width - 380), 40));
-        }
+            g.DrawString(_field.Name, Theme.Title, tb, 18 * S, 12 * S);
 
         // view toggle chip (clickable)
         string label = _view == PerceptionView.Ours ? "How I see them" : "How they (supposedly) see me";
         var size = g.MeasureString(label, Theme.BodyBold);
-        _viewChipRect = new RectangleF(Width - size.Width - 66, 16, size.Width + 46, 34);
-        using (var path = OpinionSlider.Rounded(_viewChipRect, 17))
+        float chipH = Math.Max(34 * S, size.Height + 12 * S);
+        _viewChipRect = new RectangleF(Width - size.Width - 66 * S, 16 * S, size.Width + 46 * S, chipH);
+        using (var path = OpinionSlider.Rounded(_viewChipRect, chipH / 2))
         {
             using var fill = new SolidBrush(_view == PerceptionView.Ours ? Theme.PanelAlt : Color.FromArgb(60, 48, 110));
             g.FillPath(fill, path);
-            using var border = new Pen(Theme.Accent, 1.4f);
+            using var border = new Pen(Theme.Accent, 1.4f * S);
             g.DrawPath(border, path);
         }
         // two-tone dot: left half = my view, right half = their view; the active half is bright
-        var dot = new RectangleF(_viewChipRect.X + 14, _viewChipRect.Y + 11, 12, 12);
+        var dot = new RectangleF(_viewChipRect.X + 14 * S, _viewChipRect.Y + chipH / 2 - 6 * S, 12 * S, 12 * S);
         using (var on = new SolidBrush(Theme.Accent))
         using (var off = new SolidBrush(Theme.Border))
         {
@@ -365,24 +383,34 @@ public sealed class FieldCanvas : Control
             g.FillPie(_view == PerceptionView.Theirs ? on : off, dot.X, dot.Y, dot.Width, dot.Height, 270, 180);
         }
         using (var tb = new SolidBrush(Theme.Text))
-            g.DrawString(label, Theme.BodyBold, tb, _viewChipRect.X + 32, _viewChipRect.Y + (34 - size.Height) / 2);
+            g.DrawString(label, Theme.BodyBold, tb, _viewChipRect.X + 32 * S, _viewChipRect.Y + (chipH - size.Height) / 2);
         using (var hint = new SolidBrush(Theme.TextDim))
         {
             const string h = "click to switch view  (V)";
             var hs = g.MeasureString(h, Theme.Small);
-            g.DrawString(h, Theme.Small, hint, _viewChipRect.Right - hs.Width - 6, _viewChipRect.Bottom + 3);
+            g.DrawString(h, Theme.Small, hint, _viewChipRect.Right - hs.Width - 6 * S, _viewChipRect.Bottom + 3 * S);
+        }
+
+        var sub = _field.Description;
+        if (!string.IsNullOrWhiteSpace(sub))
+        {
+            using var sb = new SolidBrush(Theme.TextDim);
+            var titleH = g.MeasureString(_field.Name, Theme.Title).Height;
+            float descW = Math.Max(160 * S, _viewChipRect.Left - 40 * S);
+            using var fmt = new StringFormat { Trimming = StringTrimming.EllipsisWord };
+            g.DrawString(sub, Theme.Body, sb, new RectangleF(20 * S, 12 * S + titleH, descW, 40 * S), fmt);
         }
     }
 
     private void DrawLegend(Graphics g)
     {
-        var area = new RectangleF(18, Height - 66, 300, 52);
-        using (var path = OpinionSlider.Rounded(area, 10))
+        var area = new RectangleF(18 * S, Height - 66 * S, 300 * S, 52 * S);
+        using (var path = OpinionSlider.Rounded(area, 10 * S))
         {
             using var bg = new SolidBrush(Color.FromArgb(200, Theme.Panel));
             g.FillPath(bg, path);
         }
-        var bar = new RectangleF(area.X + 14, area.Y + 26, area.Width - 28, 9);
+        var bar = new RectangleF(area.X + 14 * S, area.Y + 26 * S, area.Width - 28 * S, 9 * S);
         using (var brush = new LinearGradientBrush(bar, Color.Black, Color.Black, 0f))
         {
             var stops = OpinionPalette.LegendStops;
@@ -391,23 +419,25 @@ public sealed class FieldCanvas : Control
                 Colors = stops.Select(s => s.color).ToArray(),
                 Positions = stops.Select(s => (s.at + 100) / 200f).ToArray(),
             };
-            using var bp = OpinionSlider.Rounded(bar, 4);
+            using var bp = OpinionSlider.Rounded(bar, 4 * S);
             g.FillPath(brush, bp);
         }
         using var tb = new SolidBrush(Theme.TextDim);
         g.DrawString(_view == PerceptionView.Ours ? "My opinion of them" : "Their (supposed) opinion of me",
-            Theme.Small, tb, area.X + 12, area.Y + 6);
+            Theme.Small, tb, area.X + 12 * S, area.Y + 6 * S);
         string[] labels = { "Enemy", "Neutral", "Friend", "Ally" };
         float[] pos = { 0f, 0.5f, 0.8f, 1f };
         for (int i = 0; i < labels.Length; i++)
         {
             var s = g.MeasureString(labels[i], Theme.Small);
-            float x = Math.Clamp(bar.X + bar.Width * pos[i] - s.Width / 2, area.X + 6, area.Right - s.Width - 4);
-            if (i == 2) x -= 8;
-            g.DrawString(labels[i], Theme.Small, tb, x, bar.Bottom + 1);
+            float x = Math.Clamp(bar.X + bar.Width * pos[i] - s.Width / 2, area.X + 6 * S, area.Right - s.Width - 4 * S);
+            if (i == 2) x -= 8 * S;
+            g.DrawString(labels[i], Theme.Small, tb, x, bar.Bottom + 1 * S);
         }
-        const string size = "circle size = influence in field   ·   arrow = my influence on them";
-        g.DrawString(size, Theme.Small, tb, area.Right + 14, area.Bottom - 18);
+        const string size = "circle size = influence in field   ·   arrow = my influence on them   ·   orange badge = awaiting result";
+        var ss = g.MeasureString(size, Theme.Small);
+        if (area.Right + 14 * S + ss.Width < Width - 8 * S)
+            g.DrawString(size, Theme.Small, tb, area.Right + 14 * S, area.Bottom - ss.Height - 4 * S);
     }
 
     private void DrawTooltip(Graphics g, Person p)
@@ -422,36 +452,42 @@ public sealed class FieldCanvas : Control
             lines.Add($"They see me: {OpinionPalette.LabelFor(p.TheirOpinion)} ({p.TheirOpinion:+#;-#;0})");
             int gap = Math.Abs(p.OurOpinion - p.TheirOpinion);
             if (gap >= 40) lines.Add($"Perception gap: {gap} - worth checking");
+            if (p.Facts.Count > 0) lines.Add($"{p.Facts.Count} key fact(s) recorded");
+            var last = p.History.Where(h => h.Status == EventStatus.Done).OrderByDescending(h => h.Date).FirstOrDefault();
+            if (last != null) lines.Add($"Last: {last.Title} ({last.Date:d})");
+            if (p.PendingCount > 0) lines.Add($"{p.PendingCount} planned interaction(s) awaiting result");
         }
         string text = string.Join("\n", lines);
         var size = g.MeasureString(text, Theme.Body);
         var c = ToScreen(p.X, p.Y);
-        float r = RadiusOf(p) * _zoom;
-        var box = new RectangleF(c.X + r + 12, c.Y - size.Height / 2 - 8, size.Width + 20, size.Height + 16);
-        if (box.Right > Width - 8) box.X = c.X - r - 12 - box.Width;
-        box.Y = Math.Clamp(box.Y, 8, Math.Max(8, Height - box.Height - 8));
-        using (var path = OpinionSlider.Rounded(box, 8))
+        float r = RadiusOf(p) * Z;
+        var box = new RectangleF(c.X + r + 12 * S, c.Y - size.Height / 2 - 8 * S, size.Width + 20 * S, size.Height + 16 * S);
+        if (box.Right > Width - 8 * S) box.X = c.X - r - 12 * S - box.Width;
+        box.X = Math.Clamp(box.X, 8 * S, Math.Max(8 * S, Width - box.Width - 8 * S));
+        box.Y = Math.Clamp(box.Y, 8 * S, Math.Max(8 * S, Height - box.Height - 8 * S));
+        using (var path = OpinionSlider.Rounded(box, 8 * S))
         {
             using var bg = new SolidBrush(Color.FromArgb(235, 32, 35, 46));
             g.FillPath(bg, path);
-            using var border = new Pen(Color.FromArgb(160, ColorOf(p)), 1.2f);
+            using var border = new Pen(Color.FromArgb(160, ColorOf(p)), 1.2f * S);
             g.DrawPath(border, path);
         }
         using var tb = new SolidBrush(Theme.Text);
-        g.DrawString(text, Theme.Body, tb, box.X + 10, box.Y + 8);
+        g.DrawString(text, Theme.Body, tb, box.X + 10 * S, box.Y + 8 * S);
     }
 
-    private static void DrawPill(Graphics g, string text, PointF center, Font font, Color accent)
+    private void DrawPill(Graphics g, string text, PointF center, Font font, Color accent)
     {
         var s = g.MeasureString(text, font);
-        var r = new RectangleF(center.X - s.Width / 2 - 8, center.Y - s.Height / 2 - 3, s.Width + 16, s.Height + 6);
+        float S = this.S;
+        var r = new RectangleF(center.X - s.Width / 2 - 8 * S, center.Y - s.Height / 2 - 3 * S, s.Width + 16 * S, s.Height + 6 * S);
         using var path = OpinionSlider.Rounded(r, r.Height / 2);
         using var bg = new SolidBrush(Color.FromArgb(225, 30, 33, 43));
         g.FillPath(bg, path);
-        using var border = new Pen(Color.FromArgb(Math.Min(255, accent.A + 40), accent), 1f);
+        using var border = new Pen(Color.FromArgb(Math.Min(255, accent.A + 40), accent), S);
         g.DrawPath(border, path);
         using var tb = new SolidBrush(Theme.Text);
-        g.DrawString(text, font, tb, r.X + 8, r.Y + 3);
+        g.DrawString(text, font, tb, r.X + 8 * S, r.Y + 3 * S);
     }
 
     private void DrawCentered(Graphics g, string text, Font font, Color color, float dy = 0)
@@ -512,13 +548,13 @@ public sealed class FieldCanvas : Control
         base.OnMouseMove(e);
         if (_field == null) return;
         int dx = e.X - _dragStart.X, dy = e.Y - _dragStart.Y;
-        if (Math.Abs(dx) + Math.Abs(dy) > 3) _dragMoved = true;
+        if (Math.Abs(dx) + Math.Abs(dy) > 3 * S) _dragMoved = true;
 
         switch (_drag)
         {
             case DragMode.Person when _selected != null && _dragMoved:
-                _selected.X = _dragOrigin.X + dx / _zoom;
-                _selected.Y = _dragOrigin.Y + dy / _zoom;
+                _selected.X = _dragOrigin.X + dx / Z;
+                _selected.Y = _dragOrigin.Y + dy / Z;
                 Invalidate();
                 break;
             case DragMode.Pan when _dragMoved:

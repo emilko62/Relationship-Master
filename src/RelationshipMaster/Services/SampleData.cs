@@ -19,6 +19,26 @@ public static class SampleData
             P("Nina", "Haas", "Intern", -90, 220, 12, 70, 20, 50),
         });
 
+        var sofia = work.People.First(p => p.FirstName == "Sofia");
+        sofia.Facts.Add(new KeyFact { Category = FactCategory.Likes, Text = "Dogs - especially Great Danes (has one called Bruno)" });
+        sofia.Facts.Add(new KeyFact { Category = FactCategory.Skill, Text = "Excellent at data analysis" });
+        sofia.History.Add(new RelationshipEvent
+        {
+            Date = DateTime.Now.AddDays(-12), Title = "Helped me finish the quarterly report",
+            Description = "Stayed late to help me fix the numbers before the deadline.", OurOpinionDelta = 3, TheirOpinionDelta = 1,
+        });
+
+        var daniel = work.People.First(p => p.FirstName == "Daniel");
+        daniel.Facts.Add(new KeyFact { Category = FactCategory.Skill, Text = "Very good presenter, charismatic in meetings" });
+        daniel.Facts.Add(new KeyFact { Category = FactCategory.Weakness, Text = "Often misses deadlines and details" });
+        daniel.Facts.Add(new KeyFact { Category = FactCategory.Quirk, Text = "Takes credit for team work" });
+        daniel.Facts.Add(new KeyFact { Category = FactCategory.Goal, Text = "Wants the same team-lead promotion as me" });
+        daniel.History.Add(new RelationshipEvent
+        {
+            Date = DateTime.Now.AddDays(-5), Title = "Presented my idea as his own",
+            Description = "In the Monday meeting he pitched the dashboard idea I had shared with him.", OurOpinionDelta = -8, TheirOpinionDelta = -1,
+        });
+
         var family = Field.CreateNew("Family");
         family.Description = "Extended family.";
         family.People.AddRange(new[]

@@ -22,32 +22,33 @@ public sealed class AdvisorPanel : Panel
     {
         _advisor = advisor;
         BackColor = Theme.Panel;
-        Padding = new Padding(16, 8, 12, 12);
+        Padding = Theme.Pad(16, 8, 12, 12);
 
-        var header = new Panel { Dock = DockStyle.Top, Height = 34, BackColor = Theme.Panel };
+        var header = new Panel { Dock = DockStyle.Top, Height = Theme.Px(34), BackColor = Theme.Panel };
         var title = Theme.MakeLabel("✨ AI ADVISOR", Theme.Header, Theme.Text);
-        title.Location = new Point(0, 4);
+        title.Location = new Point(0, Theme.Px(4));
         header.Controls.Add(title);
-        _newChat = Theme.MakeButton("New chat");
-        _newChat.Height = 26;
-        _newChat.Font = Theme.Small;
+        _newChat = Theme.MakeButton("New chat", small: true);
         _newChat.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _newChat.Click += (_, _) => NewChat();
         header.Controls.Add(_newChat);
-        header.Resize += (_, _) => _newChat.Location = new Point(header.Width - _newChat.Width, 2);
+        header.Resize += (_, _) => _newChat.Location = new Point(header.Width - _newChat.Width, Theme.Px(2));
 
         _status = Theme.MakeLabel("", Theme.Small);
         _status.AutoSize = false;
-        _status.Height = 22;
+        _status.Height = Theme.Px(22);
         _status.Dock = DockStyle.Top;
         _status.Cursor = Cursors.Hand;
         _status.Click += (_, _) => { if (!_advisor.IsConfigured) SettingsRequested?.Invoke(this, EventArgs.Empty); };
 
-        _quick = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, BackColor = Theme.Panel, Padding = new Padding(0, 4, 0, 4) };
+        // Fixed-height panel resized to its wrapped content (AutoSize + Dock=Top does not wrap reliably).
+        _quick = new FlowLayoutPanel { Dock = DockStyle.Top, BackColor = Theme.Panel, Padding = Theme.Pad(0, 4, 0, 4), WrapContents = true };
+        _quick.Resize += (_, _) => FitQuick();
         AddQuick("Analyze field", "Give me a strategic read of this field: who matters most, where I stand, and the top 3 moves I should make.");
         AddQuick("Blind spots", "Where are the biggest gaps between how I see people and how they supposedly see me? What might I be missing, and how can I check?");
         AddQuick("Advise on selected", null);
         AddQuick("Who to invest in", "Which relationships here would give me the most benefit if I invested time in them, and how should I approach each one?");
+        AddQuick("Pending plans", "Look at my planned interactions that are still awaiting a result. Any tips to make them succeed, or should I rethink one?");
 
         _output = new RichTextBox
         {
@@ -59,10 +60,10 @@ public sealed class AdvisorPanel : Panel
             Font = Theme.Body,
             DetectUrls = false,
         };
-        var outputHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), BackColor = Theme.PanelAlt };
+        var outputHost = new Panel { Dock = DockStyle.Fill, Padding = Theme.Pad(10), BackColor = Theme.PanelAlt };
         outputHost.Controls.Add(_output);
 
-        var inputRow = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = 64, ColumnCount = 2, BackColor = Theme.Panel, Padding = new Padding(0, 8, 0, 0) };
+        var inputRow = new TableLayoutPanel { Dock = DockStyle.Bottom, Height = Theme.Px(64), ColumnCount = 2, BackColor = Theme.Panel, Padding = Theme.Pad(0, 8, 0, 0) };
         inputRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         inputRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _input = Theme.MakeTextBox(multiline: true);
@@ -74,7 +75,7 @@ public sealed class AdvisorPanel : Panel
         };
         _send = Theme.MakeButton("Send", primary: true);
         _send.Dock = DockStyle.Fill;
-        _send.Margin = new Padding(6, 0, 0, 0);
+        _send.Margin = Theme.Pad(6, 0, 0, 0);
         _send.Click += (_, _) =>
         {
             if (_cts != null) _cts.Cancel();
@@ -96,10 +97,8 @@ public sealed class AdvisorPanel : Panel
 
     private void AddQuick(string label, string? prompt)
     {
-        var b = Theme.MakeButton(label);
-        b.Height = 26;
-        b.Font = Theme.Small;
-        b.Margin = new Padding(0, 0, 6, 6);
+        var b = Theme.MakeButton(label, small: true);
+        b.Margin = Theme.Pad(0, 0, 6, 6);
         b.Click += (_, _) =>
         {
             if (prompt != null) { _ = SendAsync(prompt); return; }
@@ -108,6 +107,13 @@ public sealed class AdvisorPanel : Panel
             AskAbout(sel);
         };
         _quick.Controls.Add(b);
+    }
+
+    private void FitQuick()
+    {
+        if (_quick.Width <= 0) return;
+        int h = _quick.GetPreferredSize(new Size(_quick.Width, 0)).Height;
+        if (h > 0 && Math.Abs(_quick.Height - h) > 1) _quick.Height = h;
     }
 
     public void AskAbout(Person p) =>
