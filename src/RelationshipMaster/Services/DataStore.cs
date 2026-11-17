@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using RelationshipMaster.Models;
 
 namespace RelationshipMaster.Services;
@@ -8,7 +9,11 @@ namespace RelationshipMaster.Services;
 /// <summary>Persists fields and settings as JSON under %AppData%\RelationshipMaster.</summary>
 public static class DataStore
 {
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() },
+    };
 
     public static string Folder { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RelationshipMaster");

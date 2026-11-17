@@ -29,6 +29,24 @@ public sealed class Person
     public string Role { get; set; } = "";
     public string Notes { get; set; } = "";
 
+    /// <summary>Key information: likes, skills, quirks, weaknesses…</summary>
+    public List<KeyFact> Facts { get; set; } = new();
+
+    /// <summary>Everything that happened between us, newest last.</summary>
+    public List<RelationshipEvent> History { get; set; } = new();
+
+    [JsonIgnore]
+    public int PendingCount => History.Count(e => e.Status == EventStatus.Pending);
+
+    /// <summary>Applies opinion changes (clamped to -100..100) and returns the effective change.</summary>
+    public (int our, int their) ApplyDeltas(int ourDelta, int theirDelta)
+    {
+        int oldOur = OurOpinion, oldTheir = TheirOpinion;
+        OurOpinion = Math.Clamp(OurOpinion + ourDelta, -100, 100);
+        TheirOpinion = Math.Clamp(TheirOpinion + theirDelta, -100, 100);
+        return (OurOpinion - oldOur, TheirOpinion - oldTheir);
+    }
+
     [JsonIgnore]
     public string DisplayName
     {

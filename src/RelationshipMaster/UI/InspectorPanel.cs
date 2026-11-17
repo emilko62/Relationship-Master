@@ -11,18 +11,22 @@ public sealed class InspectorPanel : Panel
     private readonly OpinionSlider _fieldInfluence, _ourInfluence, _ourOpinion, _theirOpinion;
     private readonly Label _fieldInfluenceValue, _ourInfluenceValue, _ourOpinionValue, _theirOpinionValue;
     private readonly List<Control> _othersOnly = new();
-    private readonly Button _delete, _askAi;
+    private readonly Button _delete, _askAi, _details, _record, _plan;
+    private readonly Label _pending;
     private Person? _person;
     private bool _loading;
 
     public event EventHandler? PersonChanged;
     public event EventHandler<Person>? DeleteRequested;
     public event EventHandler<Person>? AskAiRequested;
+    public event EventHandler<Person>? DetailsRequested;
+    public event EventHandler<Person>? RecordEventRequested;
+    public event EventHandler<Person>? PlanRequested;
 
     public InspectorPanel()
     {
         BackColor = Theme.Panel;
-        Padding = new Padding(16, 12, 12, 8);
+        Padding = Theme.Pad(16, 12, 12, 8);
 
         _flow = new FlowLayoutPanel
         {
@@ -43,6 +47,11 @@ public sealed class InspectorPanel : Panel
         _title = Theme.MakeLabel("PERSON", Theme.Header, Theme.Text);
         _flow.Controls.Add(_title);
 
+        _pending = Theme.MakeLabel("", Theme.SmallBold, Theme.Pending);
+        _pending.Cursor = Cursors.Hand;
+        _pending.Click += (_, _) => { if (_person != null) DetailsRequested?.Invoke(this, _person); };
+        _flow.Controls.Add(_pending);
+
         _first = AddText("First name");
         _last = AddText("Last name", othersOnly: true);
         _role = AddText("Role / relationship");
@@ -54,14 +63,32 @@ public sealed class InspectorPanel : Panel
 
         _flow.Controls.Add(Theme.MakeLabel("Notes"));
         _notes = Theme.MakeTextBox(multiline: true);
-        _notes.Height = 70;
+        _notes.Height = Theme.Px(64);
         _notes.TextChanged += (_, _) => Commit();
         _flow.Controls.Add(_notes);
 
-        var buttons = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Panel, Margin = new Padding(0, 10, 0, 0) };
-        _askAi = Theme.MakeButton("✨ Ask AI about them", primary: true);
+        _details = Theme.MakeButton("Key info & history");
+        _details.Margin = Theme.Pad(0, 10, 0, 0);
+        _details.Click += (_, _) => { if (_person != null) DetailsRequested?.Invoke(this, _person); };
+        _flow.Controls.Add(_details);
+
+        var history = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Panel, Margin = Theme.Pad(0, 6, 0, 0) };
+        _record = Theme.MakeButton("+ Record event", small: true);
+        _record.Margin = Theme.Pad(0, 0, 6, 0);
+        _record.Click += (_, _) => { if (_person != null) RecordEventRequested?.Invoke(this, _person); };
+        _plan = Theme.MakeButton("✨ Plan interaction", primary: true, small: true);
+        _plan.Margin = Theme.Pad(0, 0, 6, 0);
+        _plan.Click += (_, _) => { if (_person != null) PlanRequested?.Invoke(this, _person); };
+        history.Controls.Add(_record);
+        history.Controls.Add(_plan);
+        _flow.Controls.Add(history);
+        _othersOnly.Add(history);
+
+        var buttons = new FlowLayoutPanel { AutoSize = true, BackColor = Theme.Panel, Margin = Theme.Pad(0, 6, 0, 0) };
+        _askAi = Theme.MakeButton("✨ Ask AI about them", small: true);
+        _askAi.Margin = Theme.Pad(0, 0, 6, 0);
         _askAi.Click += (_, _) => { if (_person != null) AskAiRequested?.Invoke(this, _person); };
-        _delete = Theme.MakeButton("Remove");
+        _delete = Theme.MakeButton("Remove", small: true);
         _delete.Click += (_, _) => { if (_person != null) DeleteRequested?.Invoke(this, _person); };
         buttons.Controls.Add(_askAi);
         buttons.Controls.Add(_delete);
@@ -85,13 +112,13 @@ public sealed class InspectorPanel : Panel
 
     private (OpinionSlider, Label) AddSlider(string label, int min, int max, bool opinion, bool othersOnly)
     {
-        var header = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, Height = 24, BackColor = Theme.Panel, Margin = new Padding(0, 8, 0, 0) };
+        var header = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, BackColor = Theme.Panel, Margin = Theme.Pad(0, 8, 0, 0) };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var name = Theme.MakeLabel(label);
-        name.Margin = new Padding(0, 4, 0, 0);
+        name.Margin = Theme.Pad(0, 2, 0, 0);
         var value = Theme.MakeLabel("", Theme.BodyBold, Theme.Text);
-        value.Margin = new Padding(0, 4, 0, 0);
+        value.Margin = Theme.Pad(0, 2, 0, 0);
         header.Controls.Add(name, 0, 0);
         header.Controls.Add(value, 1, 0);
 
@@ -106,7 +133,8 @@ public sealed class InspectorPanel : Panel
 
     private void LayoutWidths()
     {
-        int w = _flow.ClientSize.Width - 8;
+        int w = _flow.ClientSize.Width - Theme.Px(8) - (_flow.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0);
+        if (w < Theme.Px(60)) return;
         foreach (Control c in _flow.Controls)
             if (c is TextBox or OpinionSlider or TableLayoutPanel) c.Width = w;
     }
@@ -132,9 +160,28 @@ public sealed class InspectorPanel : Panel
             _theirOpinion.SetSilently(p.TheirOpinion);
             foreach (var c in _othersOnly) c.Visible = !p.IsMe;
             UpdateValueLabels();
+            RefreshSummary();
             LayoutWidths();
         }
         _loading = false;
+    }
+
+    /// <summary>Updates the history/key-info summary after changes made in dialogs.</summary>
+    public void RefreshSummary()
+    {
+        if (_person == null) return;
+        _loading = true;
+        _ourOpinion.SetSilently(_person.OurOpinion);
+        _theirOpinion.SetSilently(_person.TheirOpinion);
+        UpdateValueLabels();
+        _loading = false;
+        int events = _person.History.Count(h => h.Status == EventStatus.Done);
+        _details.Text = $"Key info ({_person.Facts.Count})  &  history ({events})";
+        int pending = _person.PendingCount;
+        _pending.Visible = pending > 0;
+        _pending.Text = pending == 1 ? "● 1 planned interaction awaiting its result - click to complete"
+                                     : $"● {pending} planned interactions awaiting results - click to complete";
+        _pending.MaximumSize = new Size(Math.Max(Theme.Px(100), _flow.ClientSize.Width - Theme.Px(12)), 0);
     }
 
     public void FocusName()

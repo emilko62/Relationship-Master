@@ -33,8 +33,10 @@ public sealed class OpinionSlider : Control
     public OpinionSlider()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
-                 ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
-        Height = 26;
+                 ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor |
+                 ControlStyles.Selectable, true);
+        TabStop = true;
+        Height = Theme.Px(26);
         Cursor = Cursors.Hand;
         BackColor = Color.Transparent;
     }
@@ -46,7 +48,7 @@ public sealed class OpinionSlider : Control
         Invalidate();
     }
 
-    private RectangleF Track => new(9, Height / 2f - 3, Width - 18, 6);
+    private RectangleF Track => new(Theme.Px(9f), Height / 2f - Theme.Px(3f), Width - Theme.Px(18f), Theme.Px(6f));
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -57,7 +59,7 @@ public sealed class OpinionSlider : Control
         float t = (_value - Minimum) / (float)Math.Max(1, Maximum - Minimum);
         float knobX = track.Left + t * track.Width;
 
-        using (var path = Rounded(track, 3))
+        using (var path = Rounded(track, Theme.Px(3f)))
         {
             if (OpinionScale)
             {
@@ -76,22 +78,24 @@ public sealed class OpinionSlider : Control
                 g.FillPath(bg, path);
                 using var fill = new SolidBrush(Theme.Accent);
                 var filled = new RectangleF(track.Left, track.Top, Math.Max(0.1f, knobX - track.Left), track.Height);
-                using var fp = Rounded(filled, 3);
+                using var fp = Rounded(filled, Theme.Px(3f));
                 g.FillPath(fill, fp);
             }
         }
 
         var knobColor = OpinionScale ? OpinionPalette.ColorFor(_value) : Theme.Accent;
         using var knob = new SolidBrush(knobColor);
-        using var ring = new Pen(Color.White, 2f);
-        g.FillEllipse(knob, knobX - 8, Height / 2f - 8, 16, 16);
-        g.DrawEllipse(ring, knobX - 8, Height / 2f - 8, 16, 16);
+        float k = Theme.Px(8f);
+        using var ring = new Pen(Focused ? Theme.Accent : Color.White, Theme.Px(Focused ? 3f : 2f));
+        g.FillEllipse(knob, knobX - k, Height / 2f - k, k * 2, k * 2);
+        g.DrawEllipse(ring, knobX - k, Height / 2f - k, k * 2, k * 2);
     }
 
     protected override void OnMouseDown(MouseEventArgs e)
     {
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
+        Focus();
         _dragging = true;
         Capture = true;
         SetFromX(e.X);
@@ -110,11 +114,22 @@ public sealed class OpinionSlider : Control
         Capture = false;
     }
 
-    protected override void OnMouseWheel(MouseEventArgs e)
+    // No mouse-wheel handling on purpose: scrolling the inspector must never change an opinion by accident.
+    // Keyboard (arrows / PageUp / PageDown) adjusts the value when the slider has focus.
+
+    protected override bool IsInputKey(Keys keyData) =>
+        keyData is Keys.Left or Keys.Right or Keys.Up or Keys.Down || base.IsInputKey(keyData);
+
+    protected override void OnKeyDown(KeyEventArgs e)
     {
-        base.OnMouseWheel(e);
-        Value += Math.Sign(e.Delta) * Math.Max(1, (Maximum - Minimum) / 40);
+        base.OnKeyDown(e);
+        int step = e.KeyCode is Keys.PageUp or Keys.PageDown ? Math.Max(1, (Maximum - Minimum) / 10) : 1;
+        if (e.KeyCode is Keys.Right or Keys.Up or Keys.PageUp) { Value += step; e.Handled = true; }
+        if (e.KeyCode is Keys.Left or Keys.Down or Keys.PageDown) { Value -= step; e.Handled = true; }
     }
+
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
 
     private void SetFromX(int x)
     {
